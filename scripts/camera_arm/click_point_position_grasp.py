@@ -4,8 +4,9 @@
 2. 采集一帧 D435 RGB-D，并生成彩色点云。
 3. 在 Open3D 窗口中 Shift + 左键选中目标点，按 Q 或 Esc 结束选点。
 4. 把相机坐标转换到机械臂基座坐标；默认不改动转换后的目标点。
-5. 使用当前项目的 `BookArm.ikine_best_effort()` 求目标关节角；显式加
-   --execute 时，从当前构型直接移动到目标构型，闭合夹爪后返回起始构型。
+5. 使用当前项目的 `BookArm.ikine_position_best_effort()` 只按目标位置求
+   关节角；显式加 --execute 时，从当前构型直接移动到目标构型，闭合夹爪
+   后返回起始构型。
 
 运行前请在项目根目录执行命令，并确认已激活包含 pyrealsense2、open3d、
 pinocchio 的环境。Open3D 选点窗口打开后：
@@ -18,7 +19,7 @@ pinocchio 的环境。Open3D 选点窗口打开后：
 
 推荐先干跑检查坐标转换和 IK，不连接机械臂：
 
-    python scripts/camera_arm/click_point_grasp.py
+    python scripts/camera_arm/click_point_position_grasp.py
 
 默认会自动读取 `calibration/camera_to_base.json`。当前保存的外参表示：
 
@@ -29,22 +30,28 @@ pinocchio 的环境。Open3D 选点窗口打开后：
 
 如果临时不用标定文件，而使用参考项目那种简单轴映射和偏移，可以这样运行：
 
-    python scripts/camera_arm/click_point_grasp.py --no-calibration --axis-map z,-x,-y --offset-mm 300 -100 0
+    python scripts/camera_arm/click_point_position_grasp.py --no-calibration --axis-map z,-x,-y --offset-mm 300 -100 0
 
 如果已经完成外参标定，推荐使用当前项目的标定文件：
 
-    python scripts/camera_arm/click_point_grasp.py --calibration calibration/camera_to_base.json
+    python scripts/camera_arm/click_point_position_grasp.py --calibration calibration/camera_to_base.json
 
 确认终端打印的相机点、机械臂目标点和 IK 结果正确后，再显式执行真实目标移动：
 
-    python scripts/camera_arm/click_point_grasp.py --port /dev/bookarm --execute
+    python scripts/camera_arm/click_point_position_grasp.py --port /dev/bookarm --execute
 
-真实执行时仍可指定串口：
+真实执行时仍可加坐标转换参数，例如：
 
-    python scripts/camera_arm/click_point_grasp.py --port /dev/bookarm --execute
+    python scripts/camera_arm/click_point_position_grasp.py --port /dev/bookarm --calibration calibration/camera_to_base.json --execute
 
-相机、点云、标定、工作空间、IK 和动作等待时间等不常改的参数，统一在
-脚本顶部的常量区修改。
+常用调试参数：
+
+    --depth-min 0.1 --depth-max 1.5     限制点云深度范围
+    --stride 2                          降低点云密度，加快显示
+    --voxel-size 0.003                  用 Open3D 体素降采样
+    --point-index N                     直接使用点云索引，不打开选点窗口
+    --clamp-workspace                   显式启用工作空间裁剪
+    --skip-startup                      跳过相机采集前的起始构型动作
 """
 
 from __future__ import annotations
@@ -67,77 +74,21 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from bookarm_control_py.math_utils import matrix_to_rpy, rpy_to_matrix
+from bookarm_control_py.math_utils import rpy_to_matrix
 
 
-START_Q_DEG = np.array([0.0, -70.0, 60.0, 0.0, -45.0], dtype=float)
+START_Q_DEG = np.array([0.0, -60.0, 70.0, 0.0, -45.0], dtype=float)
 DEFAULT_AXIS_MAP = "z,-x,-y"
 DEFAULT_OFFSET_MM = (300.0, -100.0, 0.0)
 DEFAULT_CALIBRATION_PATH = Path("calibration/camera_to_base.json")
 # 机械臂目标点的默认后退距离
 DEFAULT_TARGET_X_BACKOFF_M = 0.02
-# 重力导致末端下垂时，目标点沿基座 +Z 方向额外抬高的补偿量
-DEFAULT_TARGET_Z_GRAVITY_COMPENSATION_M = 0.05
 DEFAULT_SPEED = 25.0
 DEFAULT_RETURN_SPEED = 20.0
 DEFAULT_ACC = 5.0
 DEFAULT_ARM_WAIT = 5.0
 DEFAULT_GRIPPER_WAIT = 1.0
 DEFAULT_GRASP_HOLD_WAIT = 3.0
-
-# Less frequently changed settings live here instead of the command line.
-CAMERA_SERIAL = None
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
-CAMERA_FPS = 30
-CAMERA_WARMUP_FRAMES = 30
-CAMERA_TIMEOUT_MS = 5000
-DEPTH_MIN_M = 0.0
-DEPTH_MAX_M = 4.0
-POINT_CLOUD_STRIDE = 1
-VOXEL_SIZE_M = 0.0
-
-PICK_POINT_SIZE = 1.0
-POINT_INDEX = None
-SAVE_PLY_PATH = None
-FLIP_VIEW = True
-
-TRANSFORM_MATRIX_PATH = None
-USE_CALIBRATION_FILE = True
-CAMERA_TO_BASE_XYZ_M = None
-CAMERA_TO_BASE_RPY_DEG = None
-TARGET_OFFSET_BASE_M = [0.0, 0.0, 0.0]
-TARGET_X_BACKOFF_M = DEFAULT_TARGET_X_BACKOFF_M
-TARGET_Z_GRAVITY_COMPENSATION_M = DEFAULT_TARGET_Z_GRAVITY_COMPENSATION_M
-
-WORKSPACE_X_MIN_MM = 0.0
-WORKSPACE_X_MAX_MM = 450.0
-WORKSPACE_Y_MIN_MM = -300.0
-WORKSPACE_Y_MAX_MM = 300.0
-WORKSPACE_Z_MIN_MM = 20.0
-WORKSPACE_Z_MAX_MM = 400.0
-WORKSPACE_XY_RADIUS_MIN_MM = 40.0
-WORKSPACE_XY_RADIUS_MAX_MM = 450.0
-CLAMP_WORKSPACE = False
-
-SKIP_STARTUP = False
-ARM_TEST = False
-ARM_SPEED = DEFAULT_SPEED
-ARM_RETURN_SPEED = 35.0
-ARM_ACCELERATION = DEFAULT_ACC
-ARM_WAIT_SECONDS = DEFAULT_ARM_WAIT
-GRIPPER_WAIT_SECONDS = DEFAULT_GRIPPER_WAIT
-GRASP_HOLD_WAIT_SECONDS = DEFAULT_GRASP_HOLD_WAIT
-LIFT_AFTER_GRASP_Z_M = 0.1
-ARM_REACH_TIMEOUT_SECONDS = 6.0
-ARM_REACH_TOLERANCE_DEG = 2.0
-ARM_REACH_POLL_SECONDS = 0.2
-ARM_FEEDBACK_TIMEOUT_SECONDS = 1.0
-TARGET_RPY_DEG = [0.0, 0.0, 0.0]
-IK_MAX_ITERATIONS = 500
-IK_TOLERANCE = 1e-4
-IK_DAMPING = 1e-6
-IK_STEP_SIZE = 0.4
 
 
 @dataclass(frozen=True)
@@ -229,9 +180,49 @@ class CameraToBaseTransform:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="采集 D435 点云，在 Open3D 中选点，并让 BookArm 抓取该点。",
+        description="采集 D435 点云，在 Open3D 中选点，并让 BookArm 只按位置抓取该点。",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+
+    camera = parser.add_argument_group("camera")
+    camera.add_argument("--serial", default=None, help="指定 D435 序列号；只有一台相机时可不填。")
+    camera.add_argument("--width", type=int, default=640, help="彩色和深度流宽度。")
+    camera.add_argument("--height", type=int, default=480, help="彩色和深度流高度。")
+    camera.add_argument("--fps", type=int, default=30, help="采集帧率。")
+    camera.add_argument("--warmup", type=int, default=30, help="丢弃前 N 帧等待自动曝光稳定。")
+    camera.add_argument("--timeout-ms", type=int, default=5000, help="等待相机帧的超时时间。")
+    camera.add_argument("--depth-min", type=float, default=0.0, help="点云保留的最小深度，单位米。")
+    camera.add_argument("--depth-max", "--max-depth", dest="depth_max", type=float, default=4.0, help="点云保留的最大深度，单位米。")
+    camera.add_argument("--stride", type=int, default=1, help="点云采样步长；1 表示保留所有有效深度点。")
+    camera.add_argument("--voxel-size", type=float, default=0.0, help="Open3D 体素降采样尺寸，单位米；0 表示不降采样。")
+
+    picker = parser.add_argument_group("point picking")
+    picker.add_argument("--point-size", type=float, default=1.0, help="Open3D 选点窗口中的点大小。")
+    picker.add_argument("--point-index", type=int, default=None, help="直接使用点云索引，不打开选点窗口。")
+    picker.add_argument("--ply", type=Path, default=None, help="可选：保存采集到的点云 PLY。")
+    picker.add_argument("--no-flip-view", dest="flip_view", action="store_false", default=True, help="Open3D 窗口保留 RealSense 原始坐标朝向。")
+
+    transform = parser.add_argument_group("camera to arm transform")
+    transform.add_argument("--axis-map", default=DEFAULT_AXIS_MAP, help="相机坐标到机械臂坐标的轴映射，例如 z,-x,-y。")
+    transform.add_argument("--offset-mm", type=float, nargs=3, default=DEFAULT_OFFSET_MM, metavar=("X", "Y", "Z"), help="轴映射后叠加的机械臂坐标偏移，单位毫米。")
+    transform.add_argument("--transform-matrix", type=Path, default=None, help="4x4 齐次矩阵文件，输入/输出单位均为毫米；会覆盖 --axis-map 和 --offset-mm。")
+    transform.add_argument("--calibration", type=Path, default=DEFAULT_CALIBRATION_PATH, help="当前项目格式的外参 JSON，输入/输出单位为米；默认自动读取 calibration/camera_to_base.json。")
+    transform.add_argument("--no-calibration", action="store_true", help="不读取默认标定文件，改用 --axis-map/--offset-mm 或 --transform-matrix。")
+    transform.add_argument("--camera-to-base-xyz", type=float, nargs=3, default=None, metavar=("X", "Y", "Z"), help="直接指定相机原点在基座坐标系下的位置，单位米。")
+    transform.add_argument("--camera-to-base-rpy-deg", type=float, nargs=3, default=None, metavar=("ROLL", "PITCH", "YAW"), help="直接指定相机到基座的欧拉角，单位度。")
+    transform.add_argument("--target-offset-base", type=float, nargs=3, default=[0.0, 0.0, 0.0], metavar=("DX", "DY", "DZ"), help="转换到基座坐标后额外叠加的末端偏移，单位米。")
+    transform.add_argument("--target-x-backoff", type=float, default=DEFAULT_TARGET_X_BACKOFF_M, help="在机械臂基坐标系下，让目标点相对点云选取点沿 x 负方向回退的距离，单位米。")
+
+    workspace = parser.add_argument_group("arm workspace")
+    workspace.add_argument("--x-min", type=float, default=0.0, help="机械臂目标 x 最小值，单位毫米。")
+    workspace.add_argument("--x-max", type=float, default=450.0, help="机械臂目标 x 最大值，单位毫米。")
+    workspace.add_argument("--y-min", type=float, default=-300.0, help="机械臂目标 y 最小值，单位毫米。")
+    workspace.add_argument("--y-max", type=float, default=300.0, help="机械臂目标 y 最大值，单位毫米。")
+    workspace.add_argument("--z-min", type=float, default=20.0, help="机械臂目标 z 最小值，单位毫米。")
+    workspace.add_argument("--z-max", type=float, default=400.0, help="机械臂目标 z 最大值，单位毫米。")
+    workspace.add_argument("--xy-radius-min", type=float, default=40.0, help="机械臂水平半径最小值，单位毫米。")
+    workspace.add_argument("--xy-radius-max", type=float, default=450.0, help="机械臂水平半径最大值，单位毫米。")
+    workspace.add_argument("--clamp-workspace", action="store_true", help="显式启用工作空间裁剪；默认不裁剪外参转换后的目标点。")
 
     arm = parser.add_argument_group("arm")
     arm.add_argument("--port", default="/dev/bookarm", help="机械臂和夹爪共用串口，例如 /dev/bookarm。")
@@ -239,60 +230,20 @@ def parse_args() -> argparse.Namespace:
     arm.add_argument("--dry-run", dest="execute", action="store_false", help="只打印目标、IK 和命令，不连接机械臂。")
     arm.set_defaults(execute=False)
     arm.add_argument("--yes", action="store_true", help="跳过真实运动前的确认提示。")
-
-    parser.set_defaults(
-        serial=CAMERA_SERIAL,
-        width=CAMERA_WIDTH,
-        height=CAMERA_HEIGHT,
-        fps=CAMERA_FPS,
-        warmup=CAMERA_WARMUP_FRAMES,
-        timeout_ms=CAMERA_TIMEOUT_MS,
-        depth_min=DEPTH_MIN_M,
-        depth_max=DEPTH_MAX_M,
-        stride=POINT_CLOUD_STRIDE,
-        voxel_size=VOXEL_SIZE_M,
-        point_size=PICK_POINT_SIZE,
-        point_index=POINT_INDEX,
-        ply=SAVE_PLY_PATH,
-        flip_view=FLIP_VIEW,
-        axis_map=DEFAULT_AXIS_MAP,
-        offset_mm=DEFAULT_OFFSET_MM,
-        transform_matrix=TRANSFORM_MATRIX_PATH,
-        calibration=DEFAULT_CALIBRATION_PATH,
-        no_calibration=not USE_CALIBRATION_FILE,
-        camera_to_base_xyz=CAMERA_TO_BASE_XYZ_M,
-        camera_to_base_rpy_deg=CAMERA_TO_BASE_RPY_DEG,
-        target_offset_base=TARGET_OFFSET_BASE_M,
-        target_x_backoff=TARGET_X_BACKOFF_M,
-        target_z_gravity_compensation=TARGET_Z_GRAVITY_COMPENSATION_M,
-        x_min=WORKSPACE_X_MIN_MM,
-        x_max=WORKSPACE_X_MAX_MM,
-        y_min=WORKSPACE_Y_MIN_MM,
-        y_max=WORKSPACE_Y_MAX_MM,
-        z_min=WORKSPACE_Z_MIN_MM,
-        z_max=WORKSPACE_Z_MAX_MM,
-        xy_radius_min=WORKSPACE_XY_RADIUS_MIN_MM,
-        xy_radius_max=WORKSPACE_XY_RADIUS_MAX_MM,
-        clamp_workspace=CLAMP_WORKSPACE,
-        skip_startup=SKIP_STARTUP,
-        arm_test=ARM_TEST,
-        speed=ARM_SPEED,
-        return_speed=ARM_RETURN_SPEED,
-        acc=ARM_ACCELERATION,
-        arm_wait=ARM_WAIT_SECONDS,
-        gripper_wait=GRIPPER_WAIT_SECONDS,
-        grasp_hold_wait=GRASP_HOLD_WAIT_SECONDS,
-        lift_after_grasp_z=LIFT_AFTER_GRASP_Z_M,
-        arm_reach_timeout=ARM_REACH_TIMEOUT_SECONDS,
-        arm_reach_tolerance_deg=ARM_REACH_TOLERANCE_DEG,
-        arm_reach_poll=ARM_REACH_POLL_SECONDS,
-        arm_feedback_timeout=ARM_FEEDBACK_TIMEOUT_SECONDS,
-        target_rpy_deg=TARGET_RPY_DEG,
-        max_iterations=IK_MAX_ITERATIONS,
-        tolerance=IK_TOLERANCE,
-        damping=IK_DAMPING,
-        step_size=IK_STEP_SIZE,
-    )
+    arm.add_argument("--skip-startup", action="store_true", help="跳过相机采集前的起始构型运动。")
+    arm.add_argument("--arm-test", action="store_true", help="起始构型运动后要求人工确认机械臂动作正常。")
+    arm.add_argument("--speed", type=float, default=DEFAULT_SPEED, help="机械臂运动速度。")
+    arm.add_argument("--return-speed", type=float, default=35, help="抓取后返回起始构型速度。")
+    arm.add_argument("--acc", type=float, default=DEFAULT_ACC, help="机械臂运动加速度。")
+    arm.add_argument("--arm-wait", type=float, default=DEFAULT_ARM_WAIT, help="机械臂运动后的等待秒数。")
+    arm.add_argument("--gripper-wait", type=float, default=DEFAULT_GRIPPER_WAIT, help="夹爪动作后的等待秒数。")
+    arm.add_argument("--grasp-hold-wait", type=float, default=DEFAULT_GRASP_HOLD_WAIT, help="发送夹紧指令后、返回起始构型前的等待秒数。")
+    arm.add_argument("--grasp-repeat-hz", type=float, default=None, help=argparse.SUPPRESS)
+    arm.add_argument("--no-grasp", action="store_true", help=argparse.SUPPRESS)
+    arm.add_argument("--max-iterations", type=int, default=500, help="位置 best-effort IK 最大迭代次数。")
+    arm.add_argument("--tolerance", type=float, default=1e-4, help="位置 best-effort IK 收敛容差。")
+    arm.add_argument("--damping", type=float, default=1e-6, help="阻尼最小二乘阻尼系数。")
+    arm.add_argument("--step-size", type=float, default=0.4, help="IK 每步积分步长。")
     return parser.parse_args()
 
 
@@ -696,8 +647,8 @@ def move_arm_to_startup_default(robot, args: argparse.Namespace) -> bool:
     print(robot.open_gripper())
     wait(args.gripper_wait)
 
-    print("  开启机械臂力矩。")
-    print(robot.enable_torque())
+    # print("  开启机械臂力矩。")
+    # print(robot.enable_torque())
 
     print("  移动到起始构型。")
     print(robot.move_joints_rad(start_q, speed=args.speed, acceleration=args.acc))
@@ -723,11 +674,9 @@ def solve_target_configuration(
         context="起始构型",
     )
     target_position = np.array([target_x_m, target_y_m, target_z_m], dtype=float)
-    target_rotation = rpy_to_matrix(np.deg2rad(np.asarray(args.target_rpy_deg, dtype=float)))
 
-    ik_result = robot.ikine_best_effort(
+    ik_result = robot.ikine_position_best_effort(
         target_position=target_position,
-        target_rotation=target_rotation,
         q0=start_q,
         max_iterations=args.max_iterations,
         tolerance=args.tolerance,
@@ -736,123 +685,14 @@ def solve_target_configuration(
         print_error=False,
     )
     goal_q = robot.check_joint_angles(ik_result.q, context="目标构型")
-    reached_pose = robot.fkine_dict(goal_q)
-    reached_position = reached_pose["position"]
-    reached_rotation = reached_pose["rotation"]
-    reached_rpy_deg = np.rad2deg(matrix_to_rpy(reached_rotation))
-    position_error_xyz = reached_position - target_position
 
     print("\nIK 结果")
     print(f"  起始构型 deg: {format_array(START_Q_DEG)}")
     print(f"  目标位置 xyz m: {format_array(target_position)}")
-    print(f"  目标姿态 rpy deg: {format_array(np.asarray(args.target_rpy_deg, dtype=float))}")
     print(f"  目标构型 deg: {format_array(np.rad2deg(goal_q))}")
-    print(f"  实际将到达位置 xyz m: {format_array(reached_position)}")
-    print(f"  实际将到达姿态 rpy deg: {format_array(reached_rpy_deg)}")
-    print(f"  实际将到达旋转矩阵:\n{format_array(reached_rotation)}")
-    print(f"  位置误差 xyz m: {format_array(position_error_xyz)}")
     print(f"  best-effort success: {ik_result.success}")
-    print(f"  总误差: {ik_result.error_norm:.8f}")
     print(f"  位置误差: {ik_result.position_error_norm:.8f} m")
-    print(f"  姿态误差: {np.rad2deg(ik_result.rotation_error_rad):.8f} deg")
     return goal_q, ik_result
-
-
-def wait_until_arm_reaches(
-    robot,
-    target_q: np.ndarray,
-    args: argparse.Namespace,
-    *,
-    reached_message: str = "继续执行后续动作",
-) -> np.ndarray:
-    """循环读取关节反馈，直到机械臂到达目标构型或超时。"""
-
-    tolerance_rad = np.deg2rad(float(args.arm_reach_tolerance_deg))
-    timeout = float(args.arm_reach_timeout)
-    poll_interval = float(args.arm_reach_poll)
-    deadline = time.monotonic() + timeout
-    last_error_deg: np.ndarray | None = None
-    last_feedback_q: np.ndarray | None = None
-    last_feedback_error: Exception | None = None
-
-    print(
-        "\n等待机械臂到达目标构型"
-        f"（超时 {timeout:.1f}s，关节误差阈值 {args.arm_reach_tolerance_deg:.2f} deg）..."
-    )
-
-    while time.monotonic() < deadline:
-        try:
-            feedback = robot.read_arm_feedback(response_timeout=args.arm_feedback_timeout)
-        except (RuntimeError, ValueError) as exc:
-            last_feedback_error = exc
-            wait(poll_interval)
-            continue
-
-        last_feedback_q = feedback.q_rad
-        error = feedback.q_rad - target_q
-        last_error_deg = np.rad2deg(error)
-        max_abs_error_deg = float(np.max(np.abs(last_error_deg)))
-        print(
-            "  当前 q deg: "
-            f"{format_array(np.rad2deg(feedback.q_rad))}, "
-            f"最大关节误差: {max_abs_error_deg:.3f} deg"
-        )
-
-        if np.all(np.abs(error) <= tolerance_rad):
-            print(f"机械臂已到达目标构型，{reached_message}。")
-            return feedback.q_rad
-
-        wait(poll_interval)
-
-    detail = f"机械臂未在 {timeout:.1f}s 内到达目标构型"
-    if last_feedback_q is not None and last_error_deg is not None:
-        detail += (
-            f"；最后反馈 q deg: {format_array(np.rad2deg(last_feedback_q))}"
-            f"；最后关节误差 deg: {format_array(last_error_deg)}"
-        )
-    elif last_feedback_error is not None:
-        detail += f"；最后一次读取反馈失败: {last_feedback_error}"
-    print(f"warning: {detail}")
-    print(f"继续执行后续动作：{reached_message}。")
-    if last_feedback_q is not None:
-        return last_feedback_q
-    return target_q
-
-
-def solve_lift_after_grasp_configuration(
-    robot,
-    current_q: np.ndarray,
-    args: argparse.Namespace,
-) -> np.ndarray:
-    """根据当前末端位姿，生成沿基座 +Z 方向上抬后的目标构型。"""
-
-    current_pose = robot.fkine_dict(current_q)
-    lift_position = current_pose["position"].copy()
-    lift_position[2] += float(args.lift_after_grasp_z)
-    lift_rotation = current_pose["rotation"]
-
-    ik_result = robot.ikine_best_effort(
-        target_position=lift_position,
-        target_rotation=lift_rotation,
-        q0=current_q,
-        max_iterations=args.max_iterations,
-        tolerance=args.tolerance,
-        damping=args.damping,
-        step_size=args.step_size,
-        print_error=False,
-    )
-    lift_q = robot.check_joint_angles(ik_result.q, context="抓取后上抬构型")
-    reached_pose = robot.fkine_dict(lift_q)
-
-    print("\n抓取后上抬 IK 结果")
-    print(f"  当前末端位置 xyz m: {format_array(current_pose['position'])}")
-    print(f"  上抬目标位置 xyz m: {format_array(lift_position)}")
-    print(f"  上抬目标构型 deg: {format_array(np.rad2deg(lift_q))}")
-    print(f"  实际将到达位置 xyz m: {format_array(reached_pose['position'])}")
-    print(f"  best-effort success: {ik_result.success}")
-    print(f"  位置误差: {ik_result.position_error_norm:.8f} m")
-    print(f"  姿态误差: {np.rad2deg(ik_result.rotation_error_rad):.8f} deg")
-    return lift_q
 
 
 def execute_target_move(robot, goal_q: np.ndarray, args: argparse.Namespace) -> None:
@@ -860,26 +700,11 @@ def execute_target_move(robot, goal_q: np.ndarray, args: argparse.Namespace) -> 
 
     print("\n从当前构型直接移动到点云目标对应构型。")
     print(robot.move_joints_rad(goal_q, speed=args.speed, acceleration=args.acc))
-    reached_q = wait_until_arm_reaches(
-        robot,
-        goal_q,
-        args,
-        reached_message="继续执行抓取",
-    )
+    wait(args.arm_wait)
 
     print("\n闭合夹爪，执行抓取。")
     print(robot.hold_gripper_closed())
     wait(args.grasp_hold_wait)
-
-    lift_q = solve_lift_after_grasp_configuration(robot, reached_q, args)
-    print(f"\n抓取完成，沿基座 +Z 方向上抬 {args.lift_after_grasp_z:.3f} m。")
-    print(robot.move_joints_rad(lift_q, speed=args.speed, acceleration=args.acc))
-    wait_until_arm_reaches(
-        robot,
-        lift_q,
-        args,
-        reached_message="继续返回起始构型",
-    )
 
     print(f"\n返回起始构型，速度 {args.return_speed:.1f}。")
     print(robot.move_joints_rad(start_q, speed=args.return_speed, acceleration=args.acc))
@@ -918,19 +743,14 @@ def main() -> int:
     args = parse_args()
     robot = None
     try:
-        # 在访问相机或机械臂硬件前，先检查脚本配置是否合理。
         if args.target_x_backoff < 0:
             raise RuntimeError("--target-x-backoff 必须大于等于 0。")
-        if args.target_z_gravity_compensation < 0:
-            raise RuntimeError("TARGET_Z_GRAVITY_COMPENSATION_M 必须大于等于 0。")
 
-        # 准备 Open3D、工作空间范围，以及相机到机械臂基座的坐标变换。
         import_open3d()
         workspace = make_workspace(args)
         matrix = load_transform_matrix(args.transform_matrix) if args.transform_matrix else None
         camera_to_base = load_camera_to_base_transform(args)
 
-        # 打印当前坐标转换方式，方便在执行前发现外参或轴映射配置问题。
         if camera_to_base is not None:
             print("使用相机到基座外参矩阵:")
             print(camera_to_base.matrix)
@@ -941,15 +761,12 @@ def main() -> int:
             print(f"使用轴映射: {args.axis_map}, offset-mm: {format_array(args.offset_mm)}")
         print(f"执行模式: {'真实运动' if args.execute else '干跑，不连接机械臂'}")
         print(f"目标点 x 回退: {args.target_x_backoff:.3f} m")
-        print(f"目标点 z 重力补偿: +{args.target_z_gravity_compensation:.3f} m")
 
-        # 创建 BookArm 模型；真实执行时可先让机械臂回到相机采集前的起始构型。
         robot = create_bookarm()
         if not args.skip_startup:
             if not move_arm_to_startup_default(robot, args):
                 return 0
 
-        # 采集一帧 RGB-D 数据，并转换为后续选点用的点云。
         frame = capture_rgbd_frame(args)
         point_cloud = make_point_cloud(frame, args)
         point_count = len(point_cloud.points)
@@ -960,7 +777,6 @@ def main() -> int:
         if args.ply is not None:
             save_point_cloud(point_cloud, args.ply)
 
-        # 通过 Open3D 交互选点，或使用固定点索引进行调试。
         if args.point_index is None:
             picked_index = pick_point_index(point_cloud, args.point_size, args.flip_view)
         else:
@@ -968,7 +784,6 @@ def main() -> int:
         if picked_index < 0 or picked_index >= point_count:
             raise RuntimeError(f"点索引 {picked_index} 超出范围；点云共有 {point_count} 个点。")
 
-        # 将相机坐标系中的选中点转换到机械臂基座坐标系，并叠加目标偏移。
         camera_point_m = np.asarray(point_cloud.points)[picked_index]
         base_point_m = transform_camera_point_to_base_m(
             camera_point_m,
@@ -978,9 +793,6 @@ def main() -> int:
         )
         raw_target_point_m = base_point_m + np.asarray(args.target_offset_base, dtype=float)
         raw_target_point_m[0] -= args.target_x_backoff
-        raw_target_point_m[2] += args.target_z_gravity_compensation
-
-        # 如有需要，将目标点裁剪到保守工作空间范围内。
         if args.clamp_workspace:
             final_target_point_mm, workspace_notes = clamp_arm_point_to_workspace(
                 raw_target_point_m * 1000.0,
@@ -1002,7 +814,6 @@ def main() -> int:
         )
         print_target_summary(selected)
 
-        # 求解目标构型，并打印目标位姿以及该构型正解得到的实际到达位姿。
         goal_q, _ik_result = solve_target_configuration(
             robot,
             float(selected.target_position_m[0]),
@@ -1012,18 +823,15 @@ def main() -> int:
             args,
         )
 
-        # 干跑模式只做选点、坐标转换和 IK 计算，不发送真实机械臂动作。
         if not args.execute:
             print("\n干跑结束：已完成点云选点、坐标转换和 IK 计算，没有连接机械臂。")
             print("确认坐标无误后，加 --execute 运行真实目标移动。")
             return 0
 
-        # 发送目标运动命令前，再向用户做一次最终确认。
         if not confirm_move(args):
             print("已取消，未发送目标运动命令。")
             return 0
 
-        # 执行目标移动、闭合夹爪、返回起始构型，并在最后询问是否打开夹爪。
         execute_target_move(robot, goal_q, args)
     except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1032,7 +840,6 @@ def main() -> int:
         print("\ninterrupted by user", file=sys.stderr)
         return 130
     finally:
-        # 如果本次运行连接了真实硬件，结束前关闭共享串口连接。
         if args.execute and robot is not None:
             robot.close()
 

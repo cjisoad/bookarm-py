@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    conda run -n bookarm-beiyu python example/3.check_fk_ik.py --port COM8
+    conda run -n bookarm-beiyu python example/3.check_fk_ik.py --port /dev/bookarm
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def main() -> None:
     # target_seed_q = robot.check_joint_angles(target_seed_q, context="目标位姿生成构型")
     # target_pose = robot.fkine_dict(target_seed_q)
 
-    target_position = np.array([0.2, 0.0, 0.2], dtype=float)
+    target_position = np.array([0.2, 0.0, 0.15], dtype=float)
     target_rpy_deg = np.array([0.0, 0.0, 0.0], dtype=float)
     target_rotation = rpy_to_matrix(np.deg2rad(target_rpy_deg))
     target_pose = {

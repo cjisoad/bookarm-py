@@ -41,6 +41,8 @@ DEFAULT_URDF_PATH = (
 )
 DEFAULT_MOVE_SPEED = 25.0
 DEFAULT_MOVE_ACCELERATION = 5.0
+DEFAULT_LINK6_ANGLE_RAD = float(np.deg2rad(-45.0))
+LINK6_JOINT_NAME = "joint_pole"
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,7 @@ class IKResult:
 
 @dataclass(frozen=True)
 class BestEffortIKResult:
-    """Best-effort pose IK result.
+    """Best-effort IK result.
 
     ``success`` indicates whether the requested tolerance was reached. Even when
     it is false, ``q`` is the best configuration found during the search.
@@ -264,11 +266,17 @@ class BookArm:
         tolerance: float = 1e-4,
         damping: float = 1e-6,
         step_size: float = 0.4,
+        link6_angle_rad: float = DEFAULT_LINK6_ANGLE_RAD,
     ) -> IKResult:
         """Solve numerical IK while enforcing URDF joint limits."""
 
         target_translation = np.asarray(target_position, dtype=float).reshape(3)
         q = self._as_configuration(q0) if q0 is not None else self.neutral_q.copy()
+        q = self._with_link6_angle(
+            q,
+            link6_angle_rad,
+            context="IK link6 angle",
+        )
         q = self.check_joint_angles(q, context="IK initial configuration")
         frame_id = self._get_frame_id(end_effector_link or self.end_effector_link)
 
@@ -281,6 +289,7 @@ class BookArm:
                 tolerance=tolerance,
                 damping=damping,
                 step_size=step_size,
+                link6_angle_rad=link6_angle_rad,
             )
 
         target_pose = pin.SE3(
@@ -295,6 +304,7 @@ class BookArm:
             tolerance=tolerance,
             damping=damping,
             step_size=step_size,
+            link6_angle_rad=link6_angle_rad,
         )
 
     def ikine_best_effort(
@@ -308,6 +318,7 @@ class BookArm:
         damping: float = 1e-6,
         step_size: float = 0.4,
         print_error: bool = True,
+        link6_angle_rad: float = DEFAULT_LINK6_ANGLE_RAD,
     ) -> BestEffortIKResult:
         """Solve pose IK and return the closest configuration if exact IK fails.
 
@@ -331,6 +342,11 @@ class BookArm:
             target_translation,
         )
         q = self._as_configuration(q0) if q0 is not None else self.neutral_q.copy()
+        q = self._with_link6_angle(
+            q,
+            link6_angle_rad,
+            context="Best-effort IK link6 angle",
+        )
         q = self.check_joint_angles(q, context="Best-effort IK initial configuration")
         frame_id = self._get_frame_id(end_effector_link or self.end_effector_link)
 
@@ -338,6 +354,11 @@ class BookArm:
 
         for iteration in range(max_iterations + 1):
             q = self._clip_configuration_to_limits(q)
+            q = self._with_link6_angle(
+                q,
+                link6_angle_rad,
+                context=f"Best-effort IK iteration {iteration} link6 angle",
+            )
             pin.forwardKinematics(self.model, self.data, q)
             pin.updateFramePlacements(self.model, self.data)
 
@@ -379,6 +400,11 @@ class BookArm:
             next_q = self._clip_configuration_to_limits(
                 pin.integrate(self.model, q, step_size * velocity)
             )
+            next_q = self._with_link6_angle(
+                next_q,
+                link6_angle_rad,
+                context=f"Best-effort IK iteration {iteration} proposed link6 angle",
+            )
             if np.linalg.norm(next_q - q) < 1e-12:
                 break
             q = next_q
@@ -397,6 +423,116 @@ class BookArm:
             self._print_best_effort_ik_error(result)
         return result
 
+    def ikine_position_best_effort(
+        self,
+        target_position: Iterable[float],
+        q0: Iterable[float] | None = None,
+        end_effector_link: str | None = None,
+        max_iterations: int = 500,
+        tolerance: float = 1e-4,
+        damping: float = 1e-6,
+        step_size: float = 0.4,
+        print_error: bool = True,
+        link6_angle_rad: float = DEFAULT_LINK6_ANGLE_RAD,
+    ) -> BestEffortIKResult:
+        """Solve position-only IK and return the closest configuration found.
+
+        ``success`` indicates whether the target position was reached within
+        ``tolerance``. Even when it is false, ``q`` is the configuration with
+        the smallest position error seen during the search.
+        """
+
+        if max_iterations < 0:
+            raise ValueError("max_iterations must be greater than or equal to 0")
+        if tolerance <= 0.0:
+            raise ValueError("tolerance must be greater than 0")
+        if damping <= 0.0:
+            raise ValueError("damping must be greater than 0")
+        if step_size <= 0.0:
+            raise ValueError("step_size must be greater than 0")
+
+        target_translation = np.asarray(target_position, dtype=float).reshape(3)
+        q = self._as_configuration(q0) if q0 is not None else self.neutral_q.copy()
+        q = self._with_link6_angle(
+            q,
+            link6_angle_rad,
+            context="Best-effort position IK link6 angle",
+        )
+        q = self.check_joint_angles(
+            q,
+            context="Best-effort position IK initial configuration",
+        )
+        frame_id = self._get_frame_id(end_effector_link or self.end_effector_link)
+
+        best_result: BestEffortIKResult | None = None
+
+        for iteration in range(max_iterations + 1):
+            q = self._clip_configuration_to_limits(q)
+            q = self._with_link6_angle(
+                q,
+                link6_angle_rad,
+                context=f"Best-effort position IK iteration {iteration} link6 angle",
+            )
+            pin.forwardKinematics(self.model, self.data, q)
+            pin.updateFramePlacements(self.model, self.data)
+
+            current_translation = self.data.oMf[frame_id].translation
+            error = target_translation - current_translation
+            position_error_norm = float(np.linalg.norm(error))
+
+            result = BestEffortIKResult(
+                success=position_error_norm < tolerance,
+                q=q.copy(),
+                error_norm=position_error_norm,
+                iterations=iteration,
+                position_error_norm=position_error_norm,
+                rotation_error_rad=0.0,
+            )
+            if best_result is None or result.error_norm < best_result.error_norm:
+                best_result = result
+
+            if result.success:
+                if print_error:
+                    self._print_best_effort_position_ik_error(result)
+                return result
+
+            if iteration == max_iterations:
+                break
+
+            jacobian = pin.computeFrameJacobian(
+                self.model,
+                self.data,
+                q,
+                frame_id,
+                pin.ReferenceFrame.LOCAL_WORLD_ALIGNED,
+            )[:3, :]
+            velocity = self._damped_least_squares(jacobian, error, damping)
+            next_q = self._clip_configuration_to_limits(
+                pin.integrate(self.model, q, step_size * velocity)
+            )
+            next_q = self._with_link6_angle(
+                next_q,
+                link6_angle_rad,
+                context=f"Best-effort position IK iteration {iteration} proposed link6 angle",
+            )
+            if np.linalg.norm(next_q - q) < 1e-12:
+                break
+            q = next_q
+
+        if best_result is None:  # pragma: no cover - guarded by max_iterations validation.
+            raise RuntimeError("Best-effort position IK did not evaluate any configuration")
+        result = BestEffortIKResult(
+            success=False,
+            q=best_result.q,
+            error_norm=best_result.error_norm,
+            iterations=best_result.iterations,
+            position_error_norm=best_result.position_error_norm,
+            rotation_error_rad=0.0,
+        )
+        if print_error:
+            self._print_best_effort_position_ik_error(result)
+        return result
+
     def best_effort_ik_solver(
         self,
         *,
@@ -406,6 +542,7 @@ class BookArm:
         damping: float = 1e-6,
         step_size: float = 0.4,
         print_error: bool = True,
+        link6_angle_rad: float = DEFAULT_LINK6_ANGLE_RAD,
     ) -> "BestEffortIKSolver":
         """Create a reusable best-effort pose IK solver for this robot."""
 
@@ -417,6 +554,7 @@ class BookArm:
             damping=damping,
             step_size=step_size,
             print_error=print_error,
+            link6_angle_rad=link6_angle_rad,
         )
 
     def move_joints_rad(
@@ -463,6 +601,7 @@ class BookArm:
         *,
         target_rotation: np.ndarray | None = None,
         q0: Iterable[float] | None = None,
+        link6_angle_rad: float = DEFAULT_LINK6_ANGLE_RAD,
         speed: float = DEFAULT_MOVE_SPEED,
         acceleration: float = DEFAULT_MOVE_ACCELERATION,
         wait_response: bool = False,
@@ -474,6 +613,7 @@ class BookArm:
             target_position=target_position,
             target_rotation=target_rotation,
             q0=q0,
+            link6_angle_rad=link6_angle_rad,
         )
         if not result.success:
             raise RuntimeError(f"IK failed with error norm {result.error_norm:.6f}")
@@ -629,10 +769,16 @@ class BookArm:
         tolerance: float,
         damping: float,
         step_size: float,
+        link6_angle_rad: float,
     ) -> IKResult:
         last_error_norm = float("inf")
 
         for iteration in range(1, max_iterations + 1):
+            q = self._with_link6_angle(
+                q,
+                link6_angle_rad,
+                context=f"IK iteration {iteration} link6 angle",
+            )
             q = self.check_joint_angles(
                 q,
                 context=f"IK iteration {iteration} configuration",
@@ -655,7 +801,11 @@ class BookArm:
             )[:3, :]
             velocity = self._damped_least_squares(jacobian, error, damping)
             q = self.check_joint_angles(
-                pin.integrate(self.model, q, step_size * velocity),
+                self._with_link6_angle(
+                    pin.integrate(self.model, q, step_size * velocity),
+                    link6_angle_rad,
+                    context=f"IK iteration {iteration} proposed link6 angle",
+                ),
                 context=f"IK iteration {iteration} proposed configuration",
             )
 
@@ -670,10 +820,16 @@ class BookArm:
         tolerance: float,
         damping: float,
         step_size: float,
+        link6_angle_rad: float,
     ) -> IKResult:
         last_error_norm = float("inf")
 
         for iteration in range(1, max_iterations + 1):
+            q = self._with_link6_angle(
+                q,
+                link6_angle_rad,
+                context=f"IK iteration {iteration} link6 angle",
+            )
             q = self.check_joint_angles(
                 q,
                 context=f"IK iteration {iteration} configuration",
@@ -698,7 +854,11 @@ class BookArm:
             jacobian = -pin.Jlog6(frame_error.inverse()) @ jacobian
             velocity = -self._damped_least_squares(jacobian, error, damping)
             q = self.check_joint_angles(
-                pin.integrate(self.model, q, step_size * velocity),
+                self._with_link6_angle(
+                    pin.integrate(self.model, q, step_size * velocity),
+                    link6_angle_rad,
+                    context=f"IK iteration {iteration} proposed link6 angle",
+                ),
                 context=f"IK iteration {iteration} proposed configuration",
             )
 
@@ -712,6 +872,15 @@ class BookArm:
             f"总误差={result.error_norm:.8f}，"
             f"位置误差={result.position_error_norm:.8f} m，"
             f"姿态误差={np.rad2deg(result.rotation_error_rad):.8f} deg，"
+            f"最优迭代={result.iterations}"
+        )
+
+    @staticmethod
+    def _print_best_effort_position_ik_error(result: BestEffortIKResult) -> None:
+        print(
+            "尽力位置逆解"
+            f"{'已达到容许误差' if result.success else '未完全收敛，返回最接近构型'}："
+            f"位置误差={result.position_error_norm:.8f} m，"
             f"最优迭代={result.iterations}"
         )
 
@@ -730,6 +899,31 @@ class BookArm:
             for index, joint in enumerate(self.model.joints)
             if index > 0 and joint.nq > 0
         ]
+
+    def _link6_joint_index(self) -> int:
+        try:
+            return self.joint_names.index(LINK6_JOINT_NAME)
+        except ValueError as exc:
+            raise ValueError(
+                f"Cannot set link6 angle because joint {LINK6_JOINT_NAME!r} "
+                f"is not in actuated joints: {self.joint_names}"
+            ) from exc
+
+    def _with_link6_angle(
+        self,
+        q: Iterable[float],
+        link6_angle_rad: float,
+        *,
+        context: str,
+    ) -> np.ndarray:
+        q_array = self._as_configuration(q).copy()
+        link6_angle = float(link6_angle_rad)
+        if not np.isfinite(link6_angle):
+            raise ValueError(f"{context} must be finite")
+
+        link6_index = self._link6_joint_index()
+        q_array[link6_index] = link6_angle
+        return self.check_joint_angles(q_array, context=context)
 
     def _as_configuration(self, q: Iterable[float]) -> np.ndarray:
         q_array = np.asarray(list(q), dtype=float)
@@ -855,6 +1049,7 @@ class BestEffortIKSolver:
         damping: float = 1e-6,
         step_size: float = 0.4,
         print_error: bool = True,
+        link6_angle_rad: float = DEFAULT_LINK6_ANGLE_RAD,
     ) -> None:
         self.robot = robot
         self.end_effector_link = end_effector_link
@@ -863,6 +1058,7 @@ class BestEffortIKSolver:
         self.damping = damping
         self.step_size = step_size
         self.print_error = print_error
+        self.link6_angle_rad = link6_angle_rad
 
     def solve(
         self,
@@ -875,6 +1071,7 @@ class BestEffortIKSolver:
         damping: float | None = None,
         step_size: float | None = None,
         print_error: bool | None = None,
+        link6_angle_rad: float | None = None,
     ) -> BestEffortIKResult:
         """Solve IK for a target position and rotation matrix."""
 
@@ -888,4 +1085,7 @@ class BestEffortIKSolver:
             damping=self.damping if damping is None else damping,
             step_size=self.step_size if step_size is None else step_size,
             print_error=self.print_error if print_error is None else print_error,
+            link6_angle_rad=(
+                self.link6_angle_rad if link6_angle_rad is None else link6_angle_rad
+            ),
         )

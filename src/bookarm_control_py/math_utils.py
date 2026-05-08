@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 
@@ -43,4 +45,21 @@ def rpy_to_matrix(rpy_rad: np.ndarray) -> np.ndarray:
     return rotation_z @ rotation_y @ rotation_x
 
 
-__all__ = ["rpy_to_matrix"]
+def matrix_to_rpy(rotation: np.ndarray) -> np.ndarray:
+    """Convert a rotation matrix to roll, pitch, yaw radians.
+
+    This is the inverse convention of :func:`rpy_to_matrix`, using
+    ``R = Rz(yaw) @ Ry(pitch) @ Rx(roll)``.
+    """
+
+    matrix = np.asarray(rotation, dtype=float).reshape(3, 3)
+    pitch = math.atan2(
+        -float(matrix[2, 0]),
+        math.hypot(float(matrix[0, 0]), float(matrix[1, 0])),
+    )
+    roll = math.atan2(float(matrix[2, 1]), float(matrix[2, 2]))
+    yaw = math.atan2(float(matrix[1, 0]), float(matrix[0, 0]))
+    return np.array([roll, pitch, yaw], dtype=float)
+
+
+__all__ = ["matrix_to_rpy", "rpy_to_matrix"]
