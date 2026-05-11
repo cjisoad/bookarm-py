@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    conda run -n bookarm-beiyu python scripts/arm/manual_teach.py --port COM8
+    conda run -n bookarm-beiyu python scripts/arm/manual_teach.py --port /dev/bookarm
 
 力矩打开时的按键：
     t  关闭机械臂力矩，开始或继续示教
@@ -37,7 +37,7 @@ import numpy as np
 from bookarm_control_py import BookArm
 
 
-START_Q_DEG = np.array([0.0, -70.0, 75.0, 0.0, 0.0], dtype=float)
+START_Q_DEG = np.array([0.0, -70.0, 60.0, 0.0, 0.0], dtype=float)
 DEFAULT_TRAJECTORY_PATH = Path("recordings/manual_teach_trajectory.json")
 DEFAULT_RECORD_HZ = 10.0
 DEFAULT_CLOSE_REPEAT_HZ = 2.0

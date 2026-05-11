@@ -423,6 +423,229 @@ class BookArm:
             self._print_best_effort_ik_error(result)
         return result
 
+    def ikine_link6_best_effort(
+        self,
+        target_position: Iterable[float] | None = None,
+        target_rotation: np.ndarray | None = None,
+        q0: Iterable[float] | None = None,
+        max_iterations: int = 500,
+        tolerance: float = 1e-4,
+        damping: float = 1e-6,
+        step_size: float = 0.4,
+        print_error: bool = True,
+        consider_rotation: bool = True,
+        preferred_rotation: np.ndarray | None = None,
+        orientation_weight: float = 0.15,
+        position_priority_tolerance: float | None = None,
+        target_x: float | None = None,
+        target_y: float | None = None,
+        target_z: float | None = None,
+    ) -> BestEffortIKResult:
+        """Solve link6 IK with optional orientation consideration."""
+
+        if max_iterations < 0:
+            raise ValueError("max_iterations must be greater than or equal to 0")
+        if tolerance <= 0.0:
+            raise ValueError("tolerance must be greater than 0")
+        if damping <= 0.0:
+            raise ValueError("damping must be greater than 0")
+        if step_size <= 0.0:
+            raise ValueError("step_size must be greater than 0")
+        target_translation = self._resolve_target_translation(
+            target_position=target_position,
+            target_x=target_x,
+            target_y=target_y,
+            target_z=target_z,
+        )
+        if consider_rotation and target_rotation is None:
+            raise ValueError("target_rotation is required when consider_rotation is True")
+        if not consider_rotation and preferred_rotation is None:
+            preferred_rotation = pin.rpy.rpyToMatrix(0.0, np.deg2rad(45.0), 0.0)
+
+        if consider_rotation:
+            target_pose = pin.SE3(
+                np.asarray(target_rotation, dtype=float).reshape(3, 3),
+                target_translation,
+            )
+            q = self._as_configuration(q0) if q0 is not None else self.neutral_q.copy()
+            q = self.check_joint_angles(q, context="Link6 best-effort IK initial configuration")
+            frame_id = self._get_frame_id("link6")
+
+            best_result: BestEffortIKResult | None = None
+
+            for iteration in range(max_iterations + 1):
+                q = self._clip_configuration_to_limits(q)
+                pin.forwardKinematics(self.model, self.data, q)
+                pin.updateFramePlacements(self.model, self.data)
+
+                current_pose = self.data.oMf[frame_id]
+                frame_error = current_pose.actInv(target_pose)
+                error = pin.log(frame_error).vector
+                error_norm = float(np.linalg.norm(error))
+                position_error_norm = float(np.linalg.norm(target_translation - current_pose.translation))
+                rotation_error_rad = float(np.linalg.norm(pin.log3(current_pose.rotation.T @ target_pose.rotation)))
+
+                result = BestEffortIKResult(
+                    success=error_norm < tolerance,
+                    q=q.copy(),
+                    error_norm=error_norm,
+                    iterations=iteration,
+                    position_error_norm=position_error_norm,
+                    rotation_error_rad=rotation_error_rad,
+                )
+                if best_result is None or result.error_norm < best_result.error_norm:
+                    best_result = result
+
+                if result.success:
+                    if print_error:
+                        self._print_best_effort_ik_error(result)
+                    return result
+
+                if iteration == max_iterations:
+                    break
+
+                jacobian = pin.computeFrameJacobian(
+                    self.model,
+                    self.data,
+                    q,
+                    frame_id,
+                    pin.ReferenceFrame.LOCAL,
+                )
+                jacobian = -pin.Jlog6(frame_error.inverse()) @ jacobian
+                velocity = -self._damped_least_squares(jacobian, error, damping)
+                next_q = self._clip_configuration_to_limits(
+                    pin.integrate(self.model, q, step_size * velocity)
+                )
+                next_q = self.check_joint_angles(
+                    next_q,
+                    context=f"Link6 best-effort IK iteration {iteration} proposed configuration",
+                )
+                if np.linalg.norm(next_q - q) < 1e-12:
+                    break
+                q = next_q
+
+            if best_result is None:  # pragma: no cover - guarded by max_iterations validation.
+                raise RuntimeError("Link6 best-effort IK did not evaluate any configuration")
+            result = BestEffortIKResult(
+                success=False,
+                q=best_result.q,
+                error_norm=best_result.error_norm,
+                iterations=best_result.iterations,
+                position_error_norm=best_result.position_error_norm,
+                rotation_error_rad=best_result.rotation_error_rad,
+            )
+            if print_error:
+                self._print_best_effort_ik_error(result)
+            return result
+
+        position_priority_tolerance = tolerance if position_priority_tolerance is None else position_priority_tolerance
+        if position_priority_tolerance <= 0.0:
+            raise ValueError("position_priority_tolerance must be greater than 0")
+        if orientation_weight < 0.0:
+            raise ValueError("orientation_weight must be greater than or equal to 0")
+        preferred_rotation_matrix = np.asarray(preferred_rotation, dtype=float).reshape(3, 3)
+        q = self._as_configuration(q0) if q0 is not None else self.neutral_q.copy()
+        q = self.check_joint_angles(
+            q,
+            context="Link6 position-preferred IK initial configuration",
+        )
+        frame_id = self._get_frame_id("link6")
+
+        best_result: BestEffortIKResult | None = None
+
+        def is_better(
+            candidate: BestEffortIKResult,
+            current_best: BestEffortIKResult | None,
+        ) -> bool:
+            if current_best is None:
+                return True
+            candidate_position_ok = candidate.position_error_norm <= position_priority_tolerance
+            current_position_ok = current_best.position_error_norm <= position_priority_tolerance
+            if candidate_position_ok and current_position_ok:
+                if not np.isclose(candidate.rotation_error_rad, current_best.rotation_error_rad):
+                    return candidate.rotation_error_rad < current_best.rotation_error_rad
+                return candidate.position_error_norm < current_best.position_error_norm
+            if candidate_position_ok != current_position_ok:
+                return candidate_position_ok
+            if not np.isclose(candidate.position_error_norm, current_best.position_error_norm):
+                return candidate.position_error_norm < current_best.position_error_norm
+            return candidate.rotation_error_rad < current_best.rotation_error_rad
+
+        for iteration in range(max_iterations + 1):
+            q = self._clip_configuration_to_limits(q)
+            pin.forwardKinematics(self.model, self.data, q)
+            pin.updateFramePlacements(self.model, self.data)
+
+            current_pose = self.data.oMf[frame_id]
+            position_error = target_translation - current_pose.translation
+            position_error_norm = float(np.linalg.norm(position_error))
+            rotation_error_rad = float(np.linalg.norm(
+                pin.log3(current_pose.rotation.T @ preferred_rotation_matrix)
+            ))
+
+            result = BestEffortIKResult(
+                success=position_error_norm < tolerance,
+                q=q.copy(),
+                error_norm=position_error_norm,
+                iterations=iteration,
+                position_error_norm=position_error_norm,
+                rotation_error_rad=rotation_error_rad,
+            )
+            if is_better(result, best_result):
+                best_result = result
+
+            if iteration == max_iterations:
+                break
+
+            jacobian = pin.computeFrameJacobian(
+                self.model,
+                self.data,
+                q,
+                frame_id,
+                pin.ReferenceFrame.LOCAL_WORLD_ALIGNED,
+            )
+            position_jacobian = jacobian[:3, :]
+            velocity = self._damped_least_squares(position_jacobian, position_error, damping)
+
+            if position_error_norm <= position_priority_tolerance and orientation_weight > 0.0:
+                rotation_error_local = pin.log3(current_pose.rotation.T @ preferred_rotation_matrix)
+                rotation_error_world = current_pose.rotation @ rotation_error_local
+                rotation_jacobian = jacobian[3:, :]
+                rotation_velocity = self._damped_least_squares(rotation_jacobian, rotation_error_world, damping)
+                jj_t = position_jacobian @ position_jacobian.T
+                position_pinv = position_jacobian.T @ np.linalg.solve(
+                    jj_t + damping * np.eye(jj_t.shape[0]),
+                    np.eye(jj_t.shape[0]),
+                )
+                nullspace = np.eye(self.nv) - position_pinv @ position_jacobian
+                velocity = velocity + orientation_weight * (nullspace @ rotation_velocity)
+
+            next_q = self._clip_configuration_to_limits(
+                pin.integrate(self.model, q, step_size * velocity)
+            )
+            next_q = self.check_joint_angles(
+                next_q,
+                context=f"Link6 position-preferred IK iteration {iteration} proposed configuration",
+            )
+            if np.linalg.norm(next_q - q) < 1e-12:
+                break
+            q = next_q
+
+        if best_result is None:  # pragma: no cover - guarded by max_iterations validation.
+            raise RuntimeError("Link6 position-preferred IK did not evaluate any configuration")
+        result = BestEffortIKResult(
+            success=best_result.position_error_norm < tolerance,
+            q=best_result.q,
+            error_norm=best_result.position_error_norm,
+            iterations=best_result.iterations,
+            position_error_norm=best_result.position_error_norm,
+            rotation_error_rad=best_result.rotation_error_rad,
+        )
+        if print_error:
+            self._print_best_effort_position_ik_error(result)
+            print(f"姿态偏好误差={np.rad2deg(result.rotation_error_rad):.8f} deg")
+        return result
+
     def ikine_position_best_effort(
         self,
         target_position: Iterable[float],
@@ -924,6 +1147,28 @@ class BookArm:
         link6_index = self._link6_joint_index()
         q_array[link6_index] = link6_angle
         return self.check_joint_angles(q_array, context=context)
+
+    @staticmethod
+    def _resolve_target_translation(
+        *,
+        target_position: Iterable[float] | None,
+        target_x: float | None,
+        target_y: float | None,
+        target_z: float | None,
+    ) -> np.ndarray:
+        split_position = (target_x, target_y, target_z)
+        split_position_provided = any(value is not None for value in split_position)
+        if target_position is not None and split_position_provided:
+            raise ValueError("Provide either target_position or target_x/target_y/target_z, not both")
+        if target_position is None:
+            if any(value is None for value in split_position):
+                raise ValueError("Provide target_position, or provide all of target_x, target_y, and target_z")
+            target_translation = np.asarray(split_position, dtype=float).reshape(3)
+        else:
+            target_translation = np.asarray(target_position, dtype=float).reshape(3)
+        if not np.all(np.isfinite(target_translation)):
+            raise ValueError("target position must contain only finite values")
+        return target_translation
 
     def _as_configuration(self, q: Iterable[float]) -> np.ndarray:
         q_array = np.asarray(list(q), dtype=float)

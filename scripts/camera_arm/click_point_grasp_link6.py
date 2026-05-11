@@ -1,11 +1,11 @@
-"""采集 RealSense D435 点云，在 Open3D 中选点，并驱动 BookArm 移动到目标点。
+"""采集 RealSense D435 点云，在 Open3D 中选点，并驱动 BookArm 的 link6 移动到目标点。
 
 1. 可选：先让机械臂回到起始关节构型。
 2. 采集一帧 D435 RGB-D，并生成彩色点云。
 3. 在 Open3D 窗口中 Shift + 左键选中目标点，按 Q 或 Esc 结束选点。
-4. 把相机坐标转换到机械臂基座坐标；默认不改动转换后的目标点。
-5. 使用当前项目的 `BookArm.ikine_best_effort()` 求目标关节角；显式加
-   --execute 时，从当前构型直接移动到目标构型，闭合夹爪后返回起始构型。
+4. 把相机坐标转换到机械臂基座坐标；转换后的目标点作为 link6 的目标点。
+5. 使用当前项目的 `BookArm.ikine_best_effort()` 以 link6 为末端求目标关节角；
+   显式加 --execute 时，从当前构型直接移动到目标构型，闭合夹爪后上抬并返回起始构型。
 
 运行前请在项目根目录执行命令，并确认已激活包含 pyrealsense2、open3d、
 pinocchio 的环境。Open3D 选点窗口打开后：
@@ -18,7 +18,7 @@ pinocchio 的环境。Open3D 选点窗口打开后：
 
 推荐先干跑检查坐标转换和 IK，不连接机械臂：
 
-    python scripts/camera_arm/click_point_grasp.py
+    python scripts/camera_arm/click_point_grasp_link6.py
 
 默认会自动读取 `calibration/camera_to_base.json`。当前保存的外参表示：
 
@@ -29,19 +29,19 @@ pinocchio 的环境。Open3D 选点窗口打开后：
 
 如果临时不用标定文件，而使用参考项目那种简单轴映射和偏移，可以这样运行：
 
-    python scripts/camera_arm/click_point_grasp.py --no-calibration --axis-map z,-x,-y --offset-mm 300 -100 0
+    python scripts/camera_arm/click_point_grasp_link6.py --no-calibration --axis-map z,-x,-y --offset-mm 300 -100 0
 
 如果已经完成外参标定，推荐使用当前项目的标定文件：
 
-    python scripts/camera_arm/click_point_grasp.py --calibration calibration/camera_to_base.json
+    python scripts/camera_arm/click_point_grasp_link6.py --calibration calibration/camera_to_base.json
 
 确认终端打印的相机点、机械臂目标点和 IK 结果正确后，再显式执行真实目标移动：
 
-    python scripts/camera_arm/click_point_grasp.py --port /dev/bookarm --execute
+    python scripts/camera_arm/click_point_grasp_link6.py --port /dev/bookarm --execute
 
 真实执行时仍可指定串口：
 
-    python scripts/camera_arm/click_point_grasp.py --port /dev/bookarm --execute
+    python scripts/camera_arm/click_point_grasp_link6.py --port /dev/bookarm --execute
 
 相机、点云、标定、工作空间、IK 和动作等待时间等不常改的参数，统一在
 脚本顶部的常量区修改。
@@ -70,6 +70,7 @@ if str(SRC_PATH) not in sys.path:
 from bookarm_control_py.math_utils import matrix_to_rpy, rpy_to_matrix
 
 
+END_EFFECTOR_LINK = "link6"
 START_Q_DEG = np.array([0.0, -70.0, 60.0, 0.0, -45.0], dtype=float)
 DEFAULT_AXIS_MAP = "z,-x,-y"
 DEFAULT_OFFSET_MM = (300.0, -100.0, 0.0)
@@ -77,7 +78,7 @@ DEFAULT_CALIBRATION_PATH = Path("calibration/camera_to_base.json")
 # 机械臂目标点的默认后退距离
 DEFAULT_TARGET_X_BACKOFF_M = 0.02
 # 重力导致末端下垂时，目标点沿基座 +Z 方向额外抬高的补偿量
-DEFAULT_TARGET_Z_GRAVITY_COMPENSATION_M = 0.1
+DEFAULT_TARGET_Z_GRAVITY_COMPENSATION_M = 0.05
 DEFAULT_SPEED = 25.0
 DEFAULT_RETURN_SPEED = 20.0
 DEFAULT_ACC = 5.0
@@ -181,7 +182,7 @@ def create_bookarm():
             "BookArm IK 需要 pinocchio。请激活 bookarm-beiyu 环境，"
             "或从 conda-forge 安装 pinocchio。"
         ) from exc
-    return BookArm()
+    return BookArm(end_effector_link=END_EFFECTOR_LINK)
 
 
 @dataclass(frozen=True)
@@ -729,6 +730,7 @@ def solve_target_configuration(
         target_position=target_position,
         target_rotation=target_rotation,
         q0=start_q,
+        end_effector_link=END_EFFECTOR_LINK,
         max_iterations=args.max_iterations,
         tolerance=args.tolerance,
         damping=args.damping,
@@ -736,13 +738,14 @@ def solve_target_configuration(
         print_error=False,
     )
     goal_q = robot.check_joint_angles(ik_result.q, context="目标构型")
-    reached_pose = robot.fkine_dict(goal_q)
+    reached_pose = robot.fkine_dict(goal_q, end_effector_link=END_EFFECTOR_LINK)
     reached_position = reached_pose["position"]
     reached_rotation = reached_pose["rotation"]
     reached_rpy_deg = np.rad2deg(matrix_to_rpy(reached_rotation))
     position_error_xyz = reached_position - target_position
 
     print("\nIK 结果")
+    print(f"  目标末端 link: {END_EFFECTOR_LINK}")
     print(f"  起始构型 deg: {format_array(START_Q_DEG)}")
     print(f"  目标位置 xyz m: {format_array(target_position)}")
     print(f"  目标姿态 rpy deg: {format_array(np.asarray(args.target_rpy_deg, dtype=float))}")
@@ -826,7 +829,7 @@ def solve_lift_after_grasp_configuration(
 ) -> np.ndarray:
     """根据当前末端位姿，生成沿基座 +Z 方向上抬后的目标构型。"""
 
-    current_pose = robot.fkine_dict(current_q)
+    current_pose = robot.fkine_dict(current_q, end_effector_link=END_EFFECTOR_LINK)
     lift_position = current_pose["position"].copy()
     lift_position[2] += float(args.lift_after_grasp_z)
     lift_rotation = current_pose["rotation"]
@@ -835,6 +838,7 @@ def solve_lift_after_grasp_configuration(
         target_position=lift_position,
         target_rotation=lift_rotation,
         q0=current_q,
+        end_effector_link=END_EFFECTOR_LINK,
         max_iterations=args.max_iterations,
         tolerance=args.tolerance,
         damping=args.damping,
@@ -842,9 +846,10 @@ def solve_lift_after_grasp_configuration(
         print_error=False,
     )
     lift_q = robot.check_joint_angles(ik_result.q, context="抓取后上抬构型")
-    reached_pose = robot.fkine_dict(lift_q)
+    reached_pose = robot.fkine_dict(lift_q, end_effector_link=END_EFFECTOR_LINK)
 
     print("\n抓取后上抬 IK 结果")
+    print(f"  目标末端 link: {END_EFFECTOR_LINK}")
     print(f"  当前末端位置 xyz m: {format_array(current_pose['position'])}")
     print(f"  上抬目标位置 xyz m: {format_array(lift_position)}")
     print(f"  上抬目标构型 deg: {format_array(np.rad2deg(lift_q))}")
@@ -855,21 +860,18 @@ def solve_lift_after_grasp_configuration(
     return lift_q
 
 
-def execute_target_move(robot, goal_q: np.ndarray, args: argparse.Namespace) -> None:
+def execute_grasp_lift_and_return(
+    robot,
+    reached_q: np.ndarray,
+    args: argparse.Namespace,
+) -> None:
+    """执行到达目标点后的动作：闭合夹爪、上抬、返回起始构型、可选打开夹爪。"""
+
     start_q = robot.check_joint_angles(np.deg2rad(START_Q_DEG), context="起始构型")
 
-    print("\n从当前构型直接移动到点云目标对应构型。")
-    print(robot.move_joints_rad(goal_q, speed=args.speed, acceleration=args.acc))
-    reached_q = wait_until_arm_reaches(
-        robot,
-        goal_q,
-        args,
-        reached_message="继续执行抓取",
-    )
-
     print("\n闭合夹爪，执行抓取。")
-    print(robot.hold_gripper_closed())
-    wait(args.grasp_hold_wait)
+    # print(robot.hold_gripper_closed())
+    # wait(args.grasp_hold_wait)
 
     lift_q = solve_lift_after_grasp_configuration(robot, reached_q, args)
     print(f"\n抓取完成，沿基座 +Z 方向上抬 {args.lift_after_grasp_z:.3f} m。")
@@ -891,6 +893,18 @@ def execute_target_move(robot, goal_q: np.ndarray, args: argparse.Namespace) -> 
         wait(args.gripper_wait)
     else:
         print("保持夹爪当前状态，结束程序。")
+
+
+def execute_target_move(robot, goal_q: np.ndarray, args: argparse.Namespace) -> None:
+    print(f"\n从当前构型直接移动到点云目标对应构型（目标末端 {END_EFFECTOR_LINK}）。")
+    print(robot.move_joints_rad(goal_q, speed=args.speed, acceleration=args.acc))
+    reached_q = wait_until_arm_reaches(
+        robot,
+        goal_q,
+        args,
+        reached_message="继续执行抓取",
+    )
+    execute_grasp_lift_and_return(robot, reached_q, args)
 
 
 def print_target_summary(selected: SelectedTarget) -> None:
@@ -940,6 +954,7 @@ def main() -> int:
         else:
             print(f"使用轴映射: {args.axis_map}, offset-mm: {format_array(args.offset_mm)}")
         print(f"执行模式: {'真实运动' if args.execute else '干跑，不连接机械臂'}")
+        print(f"目标末端 link: {END_EFFECTOR_LINK}")
         print(f"目标点 x 回退: {args.target_x_backoff:.3f} m")
         print(f"目标点 z 重力补偿: +{args.target_z_gravity_compensation:.3f} m")
 
@@ -1023,7 +1038,7 @@ def main() -> int:
             print("已取消，未发送目标运动命令。")
             return 0
 
-        # 执行目标移动、闭合夹爪、返回起始构型，并在最后询问是否打开夹爪。
+        # 执行目标移动，并把到达后的抓取、上抬、返回动作交给独立函数，便于后续调整。
         execute_target_move(robot, goal_q, args)
     except (RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

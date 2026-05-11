@@ -12,7 +12,7 @@
   ],
   "current_mount_note": "当前参数对应的点坐标轴映射约为 base_point = [camera_z, -camera_x, -camera_y] + xyz_m。",
   "current_manual_measurement_note": "当前 rpy_deg=[-90, 0, -90] 表示相机点坐标映射到基座坐标时近似为 [camera_z, -camera_x, -camera_y]。当前 xyz_m=[-0.02, -0.15, 0.145] 表示相机原点在基座坐标系下的位置。",
-  "xyz_m": [0.025, 0.13, 0.015],
+  "xyz_m": [0.03, 0.3, -0.025],
   "rpy_deg": [-90.0, 0.0, -90.0],
   "matrix_reference": "下面的 matrix 是由当前 xyz_m/rpy_deg 计算出的等价参考矩阵，方便检查；实际代码优先读取 xyz_m/rpy_deg。",
   "matrix": [
