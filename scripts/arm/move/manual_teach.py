@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    conda run -n bookarm-beiyu python scripts/arm/manual_teach.py --port /dev/bookarm
+    conda run -n bookarm-beiyu python scripts/arm/move/manual_teach.py --port /dev/bookarm
 
 力矩打开时的按键：
     t  关闭机械臂力矩，开始或继续示教

@@ -2,7 +2,7 @@
 升降台控制程序
 
 启动方式：
-    python scripts/lift_platform/lift_platform_move.py
+    python scripts/lift_platform/lift_platform_move_solo.py
 """
 import argparse
 import os
@@ -92,7 +92,7 @@ class YZAIM_Motor:
         # ===== 速度参数修改区域 =====
         self.test_speed = 2000
         self.test_accel = 10000
-        self.pulse_per_move = 500
+        self.pulse_per_move = 4580
         self.send_interval = 0.01
         # ============================
 

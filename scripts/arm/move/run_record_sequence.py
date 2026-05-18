@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    python scripts/arm/run_record_sequence.py --port /dev/bookarm
+    python scripts/arm/move/run_record_sequence.py --port /dev/bookarm
 
 流程：
 1. 打开夹爪，并移动到构型 1。
@@ -27,8 +27,8 @@ from bookarm_control_py import BookArm
 
 CONFIGURATIONS_DEG: dict[int, np.ndarray] = {
     1: np.array([0.0, -70.0, 60.0, 0.0, 0.0], dtype=float),
-    2: np.array([  1.230469,  13.095703,  51.767578, -36.035156,  11.689453], dtype=float),
-    3: np.array([  1.230469,  13.095703,  61.767578, -36.035156,  100.689453],dtype=float),
+    2: np.array([  1.494141,  30.498047,  48.076172, -32.695312,  -9.140625], dtype=float),
+    3: np.array([  1.494141,  20.498047,  48.076172, -15.695312,  105.140625], dtype=float),
     5: np.array([0.0, -70.0, 60.0, 0.0, 76.289063], dtype=float),
 }
 MAX_ARM_SPEED = 100.0
@@ -134,7 +134,7 @@ def main() -> None:
             robot,
             configurations[3],
             label="构型 3",
-            speed=MAX_ARM_SPEED,
+            speed=50,
             acc=10.0,
             wait_seconds=args.config3_wait,
         )

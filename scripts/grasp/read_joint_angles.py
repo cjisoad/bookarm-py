@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    conda run -n bookarm-beiyu python scripts/arm/read_joint_angles.py --port /dev/bookarm
+    python scripts/arm/move/read_joint_angles.py --port /dev/bookarm
 
 该脚本只读取机械臂反馈，不发送力矩开关或运动命令。
 如果 ESP32 返回 joints/q 这类无法从字段名判断单位的数据，并且单位是角度制，
@@ -56,7 +56,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def format_array(values: np.ndarray) -> str:
-    return np.array2string(values, precision=6, suppress_small=True)
+    return np.array2string(values, precision=6, suppress_small=True, separator=", ")
 
 
 def print_feedback(

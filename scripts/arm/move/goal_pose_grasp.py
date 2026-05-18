@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    python scripts/arm/goal_pose_grasp.py --port COM8
+    python scripts/arm/move/manual_teach.py --port COM8
 
 目标位姿在 main() 中定义：位置用 xyz，姿态用欧拉角 rpy。
 欧拉角到旋转矩阵的转换调用 bookarm_control_py.math_utils.rpy_to_matrix。
