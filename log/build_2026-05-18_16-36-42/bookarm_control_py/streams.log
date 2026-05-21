@@ -1,0 +1,24 @@
+[4.066s] Invoking command in '/home/boreas/project/bookarm-control-py/build/bookarm_control_py': CONDA_PROMPT_MODIFIER=(base) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/boreas/project/bookarm-control-py/build/bookarm_control_py/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/boreas/project/bookarm-control-py/build/bookarm_control_py/build --no-deps symlink_data
+[5.441s] running develop
+[6.519s] running egg_info
+[6.519s] creating src/bookarm_control_py.egg-info
+[6.621s] writing src/bookarm_control_py.egg-info/PKG-INFO
+[6.623s] writing dependency_links to src/bookarm_control_py.egg-info/dependency_links.txt
+[6.623s] writing top-level names to src/bookarm_control_py.egg-info/top_level.txt
+[6.624s] writing manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+[6.921s] reading manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+[6.921s] writing manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+[7.003s] running build_ext
+[7.006s] Creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/python3.12/site-packages/bookarm-control-py.egg-link (link to src)
+[7.007s] Installing grasp_book script to /home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/bookarm_control_py
+[7.008s] 
+[7.008s] Installed /home/boreas/project/bookarm-control-py/build/bookarm_control_py/src
+[7.009s] running symlink_data
+[7.009s] creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index
+[7.009s] creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index/resource_index
+[7.009s] creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index/resource_index/packages
+[7.009s] symbolically linking /home/boreas/project/bookarm-control-py/build/bookarm_control_py/resource/bookarm_control_py -> /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index/resource_index/packages
+[7.010s] symbolically linking /home/boreas/project/bookarm-control-py/build/bookarm_control_py/package.xml -> /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/bookarm_control_py
+[7.010s] creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/bookarm_control_py/launch
+[7.010s] symbolically linking /home/boreas/project/bookarm-control-py/build/bookarm_control_py/launch/grasp_book.launch.py -> /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/bookarm_control_py/launch
+[7.127s] Invoked command in '/home/boreas/project/bookarm-control-py/build/bookarm_control_py' returned '0': CONDA_PROMPT_MODIFIER=(base) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/boreas/project/bookarm-control-py/build/bookarm_control_py/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/boreas/project/bookarm-control-py/build/bookarm_control_py/build --no-deps symlink_data

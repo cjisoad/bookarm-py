@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    python scripts/grasp/read_joint_angles.py --port /dev/bookarm
+    python scripts/arm/move/read_joint_angles.py --port /dev/bookarm
 
 该脚本只读取机械臂反馈，不发送力矩开关或运动命令。
 如果 ESP32 返回 joints/q 这类无法从字段名判断单位的数据，并且单位是角度制，
@@ -72,12 +72,15 @@ def print_feedback(
         print(json.dumps(feedback.raw, ensure_ascii=False, indent=2))
 
     q_deg = np.rad2deg(feedback.q_rad)
+    q_deg_j1_minus_360 = q_deg.copy()
+    q_deg_j1_minus_360[0] -= 360.0
     print("  关节角:")
     for name, rad, deg in zip(robot.joint_names, feedback.q_rad, q_deg, strict=True):
         print(f"    {name}: {rad:.6f} rad, {deg:.3f} deg")
 
     print(f"  q_rad: {format_array(feedback.q_rad)}")
     print(f"  q_deg: {format_array(q_deg)}")
+    print(f"  q_deg_j1_minus_360: {format_array(q_deg_j1_minus_360)}")
     print(f"  torque: {format_array(feedback.torque)}")
 
 

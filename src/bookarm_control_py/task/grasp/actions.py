@@ -70,6 +70,27 @@ BOOK_GRASP_SEQUENCES: dict[int, BookGraspSequence] = {
         final_q_deg=[0.0, -70.0, 60.0, 0.0, 115.0],
         gripper_close_after="second",
     ),
+    37: BookGraspSequence.from_degrees(
+        first_q_deg=[0,  28.476562,  40.605469, -30.585937, -11.25],
+        second_q_deg=[0,  32.476562,  40.605469, -65.585937, 115],
+        third_q_deg=[0,  -10.630859,  38.978516, -32.396484,   115],
+        final_q_deg=[0.0, -70.0, 60.0, 0.0, 115.0],
+        gripper_close_after="second",
+    ),
+    38: BookGraspSequence.from_degrees(
+        first_q_deg=[0,  28.476562,  40.605469, -30.585937, -11.25],
+        second_q_deg=[0,  32.476562,  40.605469, -65.585937, 115],
+        third_q_deg=[0,  -10.630859,  38.978516, -32.396484,   115],
+        final_q_deg=[0.0, -70.0, 60.0, 0.0, 115.0],
+        gripper_close_after="second",
+    ),
+    50: BookGraspSequence.from_degrees(
+        first_q_deg=[  3.691406,  50.537109,  -1.40625 , -23.818359,  10.371094],
+        second_q_deg=[  3.691406,  50.537109,  -6.40625 , -40.818359,  115],
+        third_q_deg=[  3.779297,  -0.527344,  24.960938, -28.652344,  115],
+        final_q_deg=[0.0, -70.0, 60.0, 0.0, 115.0],
+        gripper_close_after="second",
+    ),
 }
 
 

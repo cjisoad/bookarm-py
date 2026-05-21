@@ -1,0 +1,15 @@
+[2.463s] Invoking command in '/home/boreas/project/bookarm-control-py/build/bookarm_control_py': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/boreas/project/bookarm-control-py/build/bookarm_control_py/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/boreas/project/bookarm-control-py/build/bookarm_control_py/build --no-deps symlink_data
+[3.601s] running develop
+[4.566s] running egg_info
+[4.673s] writing src/bookarm_control_py.egg-info/PKG-INFO
+[4.675s] writing dependency_links to src/bookarm_control_py.egg-info/dependency_links.txt
+[4.675s] writing top-level names to src/bookarm_control_py.egg-info/top_level.txt
+[4.972s] reading manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+[4.977s] writing manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+[5.054s] running build_ext
+[5.055s] Creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/python3.12/site-packages/bookarm-control-py.egg-link (link to src)
+[5.062s] Installing grasp_book script to /home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/bookarm_control_py
+[5.063s] 
+[5.064s] Installed /home/boreas/project/bookarm-control-py/build/bookarm_control_py/src
+[5.064s] running symlink_data
+[5.196s] Invoked command in '/home/boreas/project/bookarm-control-py/build/bookarm_control_py' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/boreas/project/bookarm-control-py/build/bookarm_control_py/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/boreas/project/bookarm-control-py/build/bookarm_control_py/build --no-deps symlink_data

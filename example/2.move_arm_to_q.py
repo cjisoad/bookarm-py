@@ -2,7 +2,7 @@
 
 请在项目根目录运行：
 
-    conda run -n bookarm-beiyu python example/2.move_arm_to_q.py --port COM8
+    python example/2.move_arm_to_q.py
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="将 BookArm 移动到指定关节构型。"
     )
-    parser.add_argument("--port", default="COM8", help="串口号，例如 COM8。")
+    parser.add_argument("--port", default="/dev/bookarm", help="串口号，例如 COM8。")
     return parser.parse_args()
 
 
@@ -33,7 +33,8 @@ def main() -> None:
     robot = BookArm()
 
     # 起始构型
-    q_target_deg = np.array([0.0, -70.0, 75.0, 0.0, 0.0], dtype=float)
+    q_target_deg = np.array([0, -45,  -10 ,  45 ,  115], dtype=float)
+    # q_target_deg = np.array([0.0, -70.0, 75.0, 0.0, 0.0], dtype=float)
     # q_target_deg = np.array([0.0, 0.0, 0.0, -20.0, 0.0], dtype=float)
 
     q_target = np.deg2rad(q_target_deg)

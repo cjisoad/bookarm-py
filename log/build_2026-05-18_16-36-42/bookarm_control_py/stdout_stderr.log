@@ -1,0 +1,22 @@
+running develop
+running egg_info
+creating src/bookarm_control_py.egg-info
+writing src/bookarm_control_py.egg-info/PKG-INFO
+writing dependency_links to src/bookarm_control_py.egg-info/dependency_links.txt
+writing top-level names to src/bookarm_control_py.egg-info/top_level.txt
+writing manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+reading manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+writing manifest file 'src/bookarm_control_py.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/python3.12/site-packages/bookarm-control-py.egg-link (link to src)
+Installing grasp_book script to /home/boreas/project/bookarm-control-py/install/bookarm_control_py/lib/bookarm_control_py
+
+Installed /home/boreas/project/bookarm-control-py/build/bookarm_control_py/src
+running symlink_data
+creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index
+creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index/resource_index
+creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index/resource_index/packages
+symbolically linking /home/boreas/project/bookarm-control-py/build/bookarm_control_py/resource/bookarm_control_py -> /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/ament_index/resource_index/packages
+symbolically linking /home/boreas/project/bookarm-control-py/build/bookarm_control_py/package.xml -> /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/bookarm_control_py
+creating /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/bookarm_control_py/launch
+symbolically linking /home/boreas/project/bookarm-control-py/build/bookarm_control_py/launch/grasp_book.launch.py -> /home/boreas/project/bookarm-control-py/install/bookarm_control_py/share/bookarm_control_py/launch

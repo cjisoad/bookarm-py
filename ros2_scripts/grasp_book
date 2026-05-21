@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Run the BookArm grasp workflow from ROS2."""
+
+from bookarm_control_py.ros.grasp_book import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
